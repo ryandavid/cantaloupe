@@ -11,7 +11,8 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose Release or Debug" FORCE)
 endif()
 
-add_compile_options(-Wall -Wextra -Wswitch-enum -Wconversion -pedantic -Werror -Wshadow)
+add_compile_options(-Wall -Wextra -Wswitch-enum -Wconversion -pedantic -Wshadow)
+#add_compile_options(-Werror)
 
 add_subdirectory(third_party)
 add_subdirectory(core)

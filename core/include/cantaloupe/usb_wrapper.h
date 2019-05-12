@@ -15,16 +15,26 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <thread>
 
 // Lets cheat.  We don't want to drag along the libUSB header everywhere, so we forward declare the bits we need.
 extern "C"
 {
+struct libusb_device;
 struct libusb_context;
 void libusb_exit(libusb_context* context);
 }
 
 namespace cantaloupe
 {
+
+// Our own representations of the LibUSB hotplug arrival and leaving events.
+enum class UsbEventHotplugEvent
+{
+  ATTACHED,
+  DETACHED
+};
 
 // Deleter for the smart pointer that owns the LibUSB context.
 struct libUsbContextDeleter
@@ -38,14 +48,28 @@ class UsbWrapper
   static constexpr uint16_t kUsbVendorId = 0x1d50;
   static constexpr uint16_t kUsbProductId = 0x606f;
 
+  static constexpr uint16_t kHotplugEventTimeoutSecs = 1;
+
   UsbWrapper();
+  ~UsbWrapper();
 
   void listDevices();
 
   const char* getLibUsbVersion() const;
 
  private:
+  void hotplugEvent(UsbEventHotplugEvent event, libusb_device* dev);
+
+  void hotplugMonitorThread() const;
+
   std::unique_ptr<libusb_context, libUsbContextDeleter> context_;
+  int hotplug_handle_;
+
+  bool hotplug_thread_shutdown_;
+  std::thread hotplug_thread_;
+
+  std::mutex device_mutex_;
+  libusb_device* device_;
 };
 
 }  // namespace cantaloupe
