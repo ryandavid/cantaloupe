@@ -12,44 +12,63 @@
 // <https://www.gnu.org/licenses/>.
 
 #include <can-macos/usb_wrapper.h>
+#include <can-macos/log.h>
 
-#include <cstdio>
+#include <stdexcept>
 
 #include <libusb.h>
 
-int main()
+#define _STRINGIFY(x) #x
+#define STRINGIFY(x) _STRINGIFY(x)
+
+namespace can_macos
 {
-  const struct libusb_version* version = libusb_get_version();
-  printf("LibUSB version %u.%u.%u\n", version->major, version->minor, version->micro);
 
-  libusb_context *context = NULL;
-  libusb_init(&context);
+UsbWrapper::UsbWrapper() :
+  context_{nullptr}
+{
+  libusb_context* temp_context;
+  if (libusb_init(&temp_context) != 0)
+  {
+    throw std::runtime_error("Failed to create LibUSB context.");
+  }
 
+  // Stuff it into smart pointer.
+  context_.reset(temp_context);
+}
+
+const char* UsbWrapper::getLibUsbVersion() const
+{
+  return STRINGIFY(LIBUSB_API_VERSION);
+}
+
+void UsbWrapper::listDevices()
+{
   libusb_device **list;
-  ssize_t cnt = libusb_get_device_list(context, &list);
+
+  ssize_t cnt = libusb_get_device_list(context_.get(), &list);
 
   if (cnt < 0)
   {
-      printf("Error\n");
-      return -1;
+    CORE_ERROR("No USB devices found.");
+    return;
   }
 
-  printf("Found %zi devices.\n", cnt);
+  CORE_INFO("Found {} devices.", cnt);
 
-  for (size_t i = 0; i < cnt; i++)
+  for (ssize_t i = 0; i < cnt; i++)
   {
     libusb_device *device = list[i];
 
-    libusb_device_descriptor desc = {0};
+    libusb_device_descriptor desc;
 
     if (libusb_get_device_descriptor(device, &desc) == 0)
     {
-      printf("Device %zu : VID = 0x%04X, PID = 0x%04X\n", i, desc.idVendor, desc.idProduct);
+      CORE_INFO("Device {} : VID = 0x{:04X}, PID = 0x{:04X}", i, desc.idVendor, desc.idProduct);
     }
   }
 
   libusb_free_device_list(list, 1);
-  libusb_exit(context);
-
-  return 0;
 }
+
+}  // namespace can_macos

@@ -2,22 +2,16 @@ project(can-macos)
 cmake_minimum_required(VERSION 3.0)
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
 
-include_directories(
-    include
-    ${LIBUSB_INCLUDE_DIRS}
-)
-
-link_directories(${LIBUSB_LIBRARY_DIRS})
-
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_executable(can-macos
-    src/can-macos.cpp
-)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose Release or Debug" FORCE)
+endif()
 
-target_link_libraries(can-macos
-    ${LIBUSB_LIBRARIES}
-)
+add_compile_options(-Wall -Wextra -Wswitch-enum -Wconversion -pedantic -Werror -Wshadow)
+
+add_subdirectory(third_party)
+add_subdirectory(core)
