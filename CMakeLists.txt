@@ -1,4 +1,4 @@
-project(can-macos)
+project(cantaloupe)
 cmake_minimum_required(VERSION 3.0)
 
 find_package(PkgConfig REQUIRED)

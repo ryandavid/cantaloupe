@@ -12,27 +12,14 @@
 // <https://www.gnu.org/licenses/>.
 
 #include <cantaloupe/log.h>
+#include <cantaloupe/usb_wrapper.h>
 
-#include <spdlog/sinks/stdout_color_sinks.h>
-
-#include <cstdio>
-
-namespace cantaloupe
+int main()
 {
+  cantaloupe::UsbWrapper usb;
+  CANTALOUPE_INFO("LibUSB version '{}'.", usb.getLibUsbVersion());
 
-std::shared_ptr<spdlog::logger> g_console_logger;
+  usb.listDevices();
 
-__attribute__((constructor))
-static void coreLogConstructor()
-{
-  g_console_logger = spdlog::stdout_color_mt("");
-  if (g_console_logger == nullptr)
-  {
-    printf("Unable to create console logger!\n");
-    return;
-  }
-
-  g_console_logger->set_pattern("[%Y-%m-%dT%H:%M:%S.%e%z] [%^%l%$] [%@] %v");
+  return 0;
 }
-
-}  // namespace cantaloupe
