@@ -16,12 +16,8 @@
 
 int main()
 {
-  cantaloupe::UsbWrapper usb;
-  CANTALOUPE_INFO("LibUSB version '{}'.", usb.getLibUsbVersion());
-
-  // usb.listDevices();
-
   CANTALOUPE_INFO("Waiting for hotplug.");
+  cantaloupe::UsbWrapper usb;
   pause();
 
   return 0;

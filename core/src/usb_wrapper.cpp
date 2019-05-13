@@ -19,9 +19,6 @@
 
 #include <libusb.h>
 
-#define _STRINGIFY(x) #x
-#define STRINGIFY(x) _STRINGIFY(x)
-
 namespace cantaloupe
 {
 
@@ -30,8 +27,8 @@ UsbWrapper::UsbWrapper() :
   hotplug_handle_{0},
   hotplug_thread_shutdown_{false},
   hotplug_thread_{},
-  device_mutex_{},
-  device_{nullptr}
+  device_handle_mutex_{},
+  device_handle_{nullptr}
 {
   // Create the necessary LibUSB context.
   libusb_context* temp_context;
@@ -47,17 +44,21 @@ UsbWrapper::UsbWrapper() :
   // public header, yet we stil have access to private methods.
   auto hotplug_callback = [](libusb_context*, libusb_device* dev, libusb_hotplug_event event, void* this_ptr) -> int {
     // Make sure we have a valid `this` pointer.
-    if (this_ptr == nullptr)
+    if ((this_ptr == nullptr) || (dev == nullptr))
     {
       return 0;
     }
 
-    // Convert from a LibUSB event type to our own definition.
-    UsbEventHotplugEvent converted_event =
-      event == LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED ? UsbEventHotplugEvent::ATTACHED : UsbEventHotplugEvent::DETACHED;
-
     // Hand off to the real event handler.
-    static_cast<UsbWrapper*>(this_ptr)->hotplugEvent(converted_event, dev);
+    if (event == LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED)
+    {
+      static_cast<UsbWrapper*>(this_ptr)->hotplugAttachEvent(dev);
+    }
+    else
+    {
+      static_cast<UsbWrapper*>(this_ptr)->hotplugDetachEvent(dev);
+    }
+
     return 0;
   };
 
@@ -77,6 +78,9 @@ UsbWrapper::UsbWrapper() :
 
   // Create a thread that monitors for hotplug events.
   hotplug_thread_ = std::thread(std::bind(&UsbWrapper::hotplugMonitorThread, this));
+
+  // Check to see if the device is already connected.
+  checkForDeviceAlreadyConnected();
 }
 
 UsbWrapper::~UsbWrapper()
@@ -92,11 +96,6 @@ UsbWrapper::~UsbWrapper()
   libusb_hotplug_deregister_callback(context_.get(), hotplug_handle_);
 }
 
-const char* UsbWrapper::getLibUsbVersion() const
-{
-  return STRINGIFY(LIBUSB_API_VERSION);
-}
-
 void UsbWrapper::hotplugMonitorThread() const
 {
   while (hotplug_thread_shutdown_ == false)
@@ -110,54 +109,132 @@ void UsbWrapper::hotplugMonitorThread() const
   }
 }
 
-void UsbWrapper::listDevices()
+void UsbWrapper::checkForDeviceAlreadyConnected()
 {
   libusb_device **list;
-
   ssize_t cnt = libusb_get_device_list(context_.get(), &list);
 
   if (cnt < 0)
   {
-    CANTALOUPE_ERROR("No USB devices found.");
     return;
   }
-
-  CANTALOUPE_INFO("Found {} devices.", cnt);
 
   for (ssize_t i = 0; i < cnt; i++)
   {
     libusb_device *device = list[i];
 
     libusb_device_descriptor desc;
-
-    if (libusb_get_device_descriptor(device, &desc) == 0)
+    if ((libusb_get_device_descriptor(device, &desc) == 0) && (desc.idVendor == kUsbVendorId) &&
+      (desc.idProduct == kUsbProductId))
     {
-      CANTALOUPE_INFO("Device {} : VID = 0x{:04X}, PID = 0x{:04X}", i, desc.idVendor, desc.idProduct);
+      hotplugAttachEvent(device);
+      break;
     }
   }
 
   libusb_free_device_list(list, 1);
 }
 
-void UsbWrapper::hotplugEvent(UsbEventHotplugEvent event, libusb_device* dev)
+void UsbWrapper::hotplugAttachEvent(libusb_device* dev)
 {
+  if (dev == nullptr)
+  {
+    return;
+  }
+
   libusb_device_descriptor desc;
-  libusb_get_device_descriptor(dev, &desc);
-
-  if (event == UsbEventHotplugEvent::ATTACHED)
+  if (libusb_get_device_descriptor(dev, &desc) != LIBUSB_SUCCESS)
   {
-    CANTALOUPE_INFO("VID = 0x{:04X} PID = 0x{:04X} arrived.", desc.idVendor, desc.idProduct);
-
-    std::lock_guard<std::mutex> lock(device_mutex_);
-    device_ = dev;
+    CANTALOUPE_ERROR("Failed to get device descriptor.");
+    return;
   }
-  else if (event == UsbEventHotplugEvent::DETACHED)
+
+  // Make sure we have one configuration.
+  if (desc.bNumConfigurations < kExpectedConfigurationIndex + 1)
   {
-    CANTALOUPE_INFO("VID = 0x{:04X} PID = 0x{:04X} left.", desc.idVendor, desc.idProduct);
-
-    std::lock_guard<std::mutex> lock(device_mutex_);
-    device_ = nullptr;
+    CANTALOUPE_ERROR("Expected at least {} configuration(s) but received only {}.", kExpectedConfigurationIndex + 1,
+      desc.bNumConfigurations);
+    return;
   }
+
+  {
+    std::lock_guard<std::mutex> lock(device_handle_mutex_);
+
+    libusb_device_handle* handle = nullptr;
+    if (libusb_open(dev, &handle) != LIBUSB_SUCCESS)
+    {
+      CANTALOUPE_ERROR("Failed to open device.");
+      return;
+    }
+
+    device_handle_.reset(handle);
+
+    // We already checked that there was one configuration previously. Now claim it.
+    if (libusb_claim_interface(handle, kExpectedConfigurationIndex) != LIBUSB_SUCCESS)
+    {
+      CANTALOUPE_ERROR("Failed to claim interface.");
+    }
+  }
+
+  CANTALOUPE_INFO("Connected!");
+}
+
+void UsbWrapper::hotplugDetachEvent(libusb_device* dev)
+{
+  if (dev == nullptr)
+  {
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(device_handle_mutex_);
+    device_handle_.reset();
+  }
+
+  CANTALOUPE_INFO("Disconnected.");
+}
+
+bool UsbWrapper::receiveData(uint8_t* data, size_t num_bytes, size_t* actual_num_bytes)
+{
+  int signed_actual_length = 0;
+
+  {
+    std::lock_guard<std::mutex> lock(device_handle_mutex_);
+    if (device_handle_ == nullptr)
+    {
+      return false;
+    }
+
+    if (libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointInIdx | LIBUSB_ENDPOINT_IN, data,
+      static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs) != LIBUSB_SUCCESS)
+    {
+      return false;
+    }
+  }
+
+  *actual_num_bytes = static_cast<size_t>(signed_actual_length);
+  return true;
+}
+
+bool UsbWrapper::transmitData(uint8_t* data, size_t num_bytes)
+{
+  int signed_actual_length = 0;
+
+  {
+    std::lock_guard<std::mutex> lock(device_handle_mutex_);
+    if (device_handle_ == nullptr)
+    {
+      return false;
+    }
+
+    if (libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointOutIdx | LIBUSB_ENDPOINT_OUT, data,
+      static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs) != LIBUSB_SUCCESS)
+    {
+      return false;
+    }
+  }
+
+  return static_cast<size_t>(signed_actual_length) == num_bytes;
 }
 
 }  // namespace cantaloupe
