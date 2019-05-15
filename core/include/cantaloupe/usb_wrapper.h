@@ -13,7 +13,6 @@
 #ifndef USB_WRAPPER_H_
 #define USB_WRAPPER_H_
 
-#include <array>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -74,14 +73,16 @@ class UsbWrapper
   UsbWrapper();
   ~UsbWrapper();
 
+  bool receiveBulkData(uint8_t* data, size_t num_bytes, size_t* actual_num_bytes);
+  bool transmitBulkData(uint8_t* data, size_t num_bytes);
+  bool transmitControl(uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, uint8_t* data,
+    size_t length);
+
  private:
   void checkForDeviceAlreadyConnected();
 
   void hotplugAttachEvent(libusb_device* dev);
   void hotplugDetachEvent(libusb_device* dev);
-
-  bool receiveData(uint8_t* data, size_t num_bytes, size_t* actual_num_bytes);
-  bool transmitData(uint8_t* data, size_t num_bytes);
 
   void hotplugMonitorThread() const;
 

@@ -194,7 +194,7 @@ void UsbWrapper::hotplugDetachEvent(libusb_device* dev)
   CANTALOUPE_INFO("Disconnected.");
 }
 
-bool UsbWrapper::receiveData(uint8_t* data, size_t num_bytes, size_t* actual_num_bytes)
+bool UsbWrapper::receiveBulkData(uint8_t* data, size_t num_bytes, size_t* actual_num_bytes)
 {
   int signed_actual_length = 0;
 
@@ -202,12 +202,18 @@ bool UsbWrapper::receiveData(uint8_t* data, size_t num_bytes, size_t* actual_num
     std::lock_guard<std::mutex> lock(device_handle_mutex_);
     if (device_handle_ == nullptr)
     {
+      CANTALOUPE_ERROR("Invalid device handle.");
+      actual_num_bytes = 0;
       return false;
     }
 
-    if (libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointInIdx | LIBUSB_ENDPOINT_IN, data,
-      static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs) != LIBUSB_SUCCESS)
+    int retcode = libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointInIdx | LIBUSB_ENDPOINT_IN, data,
+      static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs);
+
+    if (retcode != LIBUSB_SUCCESS)
     {
+      CANTALOUPE_ERROR("Failed to initiate transfer (ret = {}).", retcode);
+      actual_num_bytes = 0;
       return false;
     }
   }
@@ -216,7 +222,7 @@ bool UsbWrapper::receiveData(uint8_t* data, size_t num_bytes, size_t* actual_num
   return true;
 }
 
-bool UsbWrapper::transmitData(uint8_t* data, size_t num_bytes)
+bool UsbWrapper::transmitBulkData(uint8_t* data, size_t num_bytes)
 {
   int signed_actual_length = 0;
 
@@ -224,17 +230,47 @@ bool UsbWrapper::transmitData(uint8_t* data, size_t num_bytes)
     std::lock_guard<std::mutex> lock(device_handle_mutex_);
     if (device_handle_ == nullptr)
     {
+      CANTALOUPE_ERROR("Invalid device handle.");
       return false;
     }
 
-    if (libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointOutIdx | LIBUSB_ENDPOINT_OUT, data,
-      static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs) != LIBUSB_SUCCESS)
+    int retcode = libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointOutIdx | LIBUSB_ENDPOINT_OUT, data,
+      static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs);
+
+    if (retcode != LIBUSB_SUCCESS)
     {
+      CANTALOUPE_ERROR("Failed to initiate transfer (ret = {}).", retcode);
       return false;
     }
   }
 
   return static_cast<size_t>(signed_actual_length) == num_bytes;
+}
+
+bool UsbWrapper::transmitControl(uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, uint8_t* data,
+  size_t length)
+{
+  request_type = LIBUSB_RECIPIENT_INTERFACE | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_OUT;
+
+  {
+    std::lock_guard<std::mutex> lock(device_handle_mutex_);
+    if (device_handle_ == nullptr)
+    {
+      CANTALOUPE_ERROR("Invalid device handle.");
+      return false;
+    }
+
+    int num_bytes_tx = libusb_control_transfer(device_handle_.get(), request_type, request, value, index, data,
+      static_cast<uint16_t>(length), kBulkTransferTimeoutMs);
+
+    if (num_bytes_tx <= 0)
+    {
+      CANTALOUPE_ERROR("Failed to transfer control (ret = {}).", num_bytes_tx);
+      return false;
+    }
+  }
+
+  return true;
 }
 
 }  // namespace cantaloupe
