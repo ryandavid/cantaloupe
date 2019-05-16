@@ -11,6 +11,7 @@
 // You should have received a copy of the GNU General Public License along with cantaloupe.  If not, see
 // <https://www.gnu.org/licenses/>.
 
+#include <cantaloupe/canable_cmds.h>
 #include <cantaloupe/usb_wrapper.h>
 #include <cantaloupe/log.h>
 
@@ -176,6 +177,7 @@ void UsbWrapper::hotplugAttachEvent(libusb_device* dev)
     }
   }
 
+  setHostFormat();
   CANTALOUPE_INFO("Connected!");
 }
 
@@ -247,10 +249,11 @@ bool UsbWrapper::transmitBulkData(uint8_t* data, size_t num_bytes)
   return static_cast<size_t>(signed_actual_length) == num_bytes;
 }
 
-bool UsbWrapper::transmitControl(uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, uint8_t* data,
+bool UsbWrapper::transmitControl(ControlType type, uint8_t request, uint16_t value, uint16_t index, void* data,
   size_t length)
 {
-  request_type = LIBUSB_RECIPIENT_INTERFACE | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_ENDPOINT_OUT;
+  uint8_t request_type = LIBUSB_RECIPIENT_INTERFACE | LIBUSB_REQUEST_TYPE_VENDOR;
+  request_type |= (type == ControlType::OUT) ? LIBUSB_ENDPOINT_OUT : LIBUSB_ENDPOINT_IN;
 
   {
     std::lock_guard<std::mutex> lock(device_handle_mutex_);
@@ -260,8 +263,8 @@ bool UsbWrapper::transmitControl(uint8_t request_type, uint8_t request, uint16_t
       return false;
     }
 
-    int num_bytes_tx = libusb_control_transfer(device_handle_.get(), request_type, request, value, index, data,
-      static_cast<uint16_t>(length), kBulkTransferTimeoutMs);
+    int num_bytes_tx = libusb_control_transfer(device_handle_.get(), request_type, request, value, index,
+      static_cast<uint8_t*>(data), static_cast<uint16_t>(length), kBulkTransferTimeoutMs);
 
     if (num_bytes_tx <= 0)
     {
@@ -271,6 +274,94 @@ bool UsbWrapper::transmitControl(uint8_t request_type, uint8_t request, uint16_t
   }
 
   return true;
+}
+
+bool UsbWrapper::setIdentifyLeds(bool enable_identify_leds)
+{
+  uint32_t enable_typed = enable_identify_leds;
+  return transmitControl(ControlType::OUT, GsUsbBreq::IDENTIFY, 0, 0, &enable_typed, sizeof(enable_typed));
+}
+
+bool UsbWrapper::setHostFormat()
+{
+  uint32_t mutable_magic = kGsCanExpectedHostMagic;
+  return transmitControl(ControlType::OUT, GsUsbBreq::HOST_FORMAT, 0, 0, &mutable_magic, sizeof(mutable_magic));
+}
+
+bool UsbWrapper::startChannel(bool enable, bool loopback)
+{
+  candleDeviceMode device_mode;
+  device_mode.mode = enable == true ? kGSCanModeStart : kGsCanModeReset;
+  device_mode.flags = kGsCanModeFlagHwTimestamp | kGsCanModeFlagPadPacketsToMaxPacketSize;
+
+  if (loopback == true)
+  {
+    device_mode.flags |= kGsCanModeFlagLoopBack;
+  }
+
+  return transmitControl(ControlType::OUT, GsUsbBreq::MODE, 0, 0, &device_mode, sizeof(device_mode));
+}
+
+bool UsbWrapper::setBitrate(uint32_t bitrate)
+{
+  // Values borrowed from candleLight_winusbtest ( https://github.com/HubertD/candleLight_winusbtest ).
+  candleDeviceBitTiming timing;
+  timing.prop_seg = 1;
+
+  timing.prop_seg = 1;
+  timing.sjw = 1;
+  timing.phase_seg1 = 13 - timing.prop_seg;
+  timing.phase_seg2 = 2;
+
+  switch (bitrate)
+  {
+    case 10000:
+      timing.brp = 300;
+      break;
+
+    case 20000:
+      timing.brp = 150;
+      break;
+
+    case 50000:
+      timing.brp = 60;
+      break;
+
+    case 83333:
+      timing.brp = 36;
+      break;
+
+    case 100000:
+      timing.brp = 30;
+      break;
+
+    case 125000:
+      timing.brp = 24;
+      break;
+
+    case 250000:
+      timing.brp = 12;
+      break;
+
+    case 500000:
+      timing.brp = 6;
+      break;
+
+    case 800000:
+      timing.brp = 4;
+      timing.phase_seg1 = 12 - timing.prop_seg;
+      timing.phase_seg2 = 2;
+      break;
+
+    case 1000000:
+      timing.brp = 3;
+      break;
+
+    default:
+      return false;
+  }
+
+  return transmitControl(ControlType::OUT, GsUsbBreq::BITTIMING, 0, 0, &timing, sizeof(timing));
 }
 
 }  // namespace cantaloupe

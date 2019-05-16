@@ -16,35 +16,38 @@
 
 #include <array>
 
-enum gs_usb_breq : uint8_t
-{
-  GS_USB_BREQ_HOST_FORMAT = 0,
-  GS_USB_BREQ_BITTIMING,
-  GS_USB_BREQ_MODE,
-  GS_USB_BREQ_BERR,
-  GS_USB_BREQ_BT_CONST,
-  GS_USB_BREQ_DEVICE_CONFIG,
-  GS_USB_BREQ_TIMESTAMP,
-  GS_USB_BREQ_IDENTIFY,
-  GS_USB_BREQ_GET_USER_ID,
-  GS_USB_BREQ_SET_USER_ID,
-};
-
 int main()
 {
-  CANTALOUPE_INFO("Waiting for hotplug.");
   cantaloupe::UsbWrapper usb;
 
-  std::array<uint8_t, 4> tx_buffer = {0, 0, 0, 1};
-
-  bool result = usb.transmitControl(0, gs_usb_breq::GS_USB_BREQ_IDENTIFY, 0, 0, &tx_buffer[0], tx_buffer.size());
-  CANTALOUPE_INFO("Control transfer resulted in {}.", result);
+  if (usb.setIdentifyLeds(true) == false)
+  {
+    CANTALOUPE_ERROR("Failed to set identify LEDs.");
+    return -1;
+  }
 
   sleep(1);
 
-  tx_buffer[3] = 0;
-  result = usb.transmitControl(0, gs_usb_breq::GS_USB_BREQ_IDENTIFY, 0, 0, &tx_buffer[0], tx_buffer.size());
-  CANTALOUPE_INFO("Control transfer resulted in {}.", result);
+  if (usb.setBitrate(500000) == false)
+  {
+    CANTALOUPE_ERROR("Failed to set channel bitrate.");
+    return -1;
+  }
 
+  if (usb.startChannel(true, true) == false)
+  {
+    CANTALOUPE_ERROR("Failed to start the CAN channel.");
+    return -1;
+  }
+
+  sleep(1);
+
+  if (usb.startChannel(false) == false)
+  {
+    CANTALOUPE_ERROR("Failed to stop the CAN channel.");
+    return -1;
+  }
+
+  CANTALOUPE_INFO("All done!");
   return 0;
 }

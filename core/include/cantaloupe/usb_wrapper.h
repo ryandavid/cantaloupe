@@ -52,6 +52,13 @@ struct libUsbDeviceHandleDeleter
   }
 };
 
+// Types used for control messages.
+enum class ControlType
+{
+  IN,
+  OUT
+};
+
 class UsbWrapper
 {
  public:
@@ -73,10 +80,9 @@ class UsbWrapper
   UsbWrapper();
   ~UsbWrapper();
 
-  bool receiveBulkData(uint8_t* data, size_t num_bytes, size_t* actual_num_bytes);
-  bool transmitBulkData(uint8_t* data, size_t num_bytes);
-  bool transmitControl(uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, uint8_t* data,
-    size_t length);
+  bool setIdentifyLeds(bool enable_identify_leds);
+  bool startChannel(bool enable, bool loopback = false);
+  bool setBitrate(uint32_t bitrate);
 
  private:
   void checkForDeviceAlreadyConnected();
@@ -85,6 +91,12 @@ class UsbWrapper
   void hotplugDetachEvent(libusb_device* dev);
 
   void hotplugMonitorThread() const;
+
+  bool receiveBulkData(uint8_t* data, size_t num_bytes, size_t* actual_num_bytes);
+  bool transmitBulkData(uint8_t* data, size_t num_bytes);
+  bool transmitControl(ControlType type, uint8_t request, uint16_t value, uint16_t index, void* data, size_t length);
+
+  bool setHostFormat();
 
   std::unique_ptr<libusb_context, libUsbContextDeleter> context_;
   int hotplug_handle_;
