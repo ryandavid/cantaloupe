@@ -13,6 +13,7 @@
 #ifndef USB_WRAPPER_H_
 #define USB_WRAPPER_H_
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -59,6 +60,28 @@ enum class ControlType
   OUT
 };
 
+// Make our own representation of the CAN frame rather relying on the USB interface protocol definition.  It looks
+// essentially the same though.
+struct CanFrame
+{
+  constexpr CanFrame() :
+    id{0},
+    dlc{0},
+    data{},
+    timestamp_us{0}
+  {
+  }
+
+  static constexpr size_t kDataNumMaxBytes = 8;
+
+  uint32_t id;
+  uint8_t dlc;
+
+  std::array<uint8_t, kDataNumMaxBytes> data;
+
+  uint32_t timestamp_us;
+};
+
 class UsbWrapper
 {
  public:
@@ -80,9 +103,14 @@ class UsbWrapper
   UsbWrapper();
   ~UsbWrapper();
 
+  bool isConnected();
+
   bool setIdentifyLeds(bool enable_identify_leds);
   bool startChannel(bool enable, bool loopback = false);
   bool setBitrate(uint32_t bitrate);
+
+  bool writeCanFrame(const CanFrame& frame);
+  bool readCanFrame(CanFrame* frame);
 
  private:
   void checkForDeviceAlreadyConnected();
@@ -92,8 +120,8 @@ class UsbWrapper
 
   void hotplugMonitorThread() const;
 
-  bool receiveBulkData(uint8_t* data, size_t num_bytes, size_t* actual_num_bytes);
-  bool transmitBulkData(uint8_t* data, size_t num_bytes);
+  bool receiveBulkData(void* data, size_t num_bytes, size_t* actual_num_bytes);
+  bool transmitBulkData(void* data, size_t num_bytes);
   bool transmitControl(ControlType type, uint8_t request, uint16_t value, uint16_t index, void* data, size_t length);
 
   bool setHostFormat();

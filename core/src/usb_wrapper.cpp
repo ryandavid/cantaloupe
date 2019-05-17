@@ -15,6 +15,7 @@
 #include <cantaloupe/usb_wrapper.h>
 #include <cantaloupe/log.h>
 
+#include <algorithm>
 #include <functional>
 #include <stdexcept>
 
@@ -95,6 +96,12 @@ UsbWrapper::~UsbWrapper()
 
   // Deregister the hotplug callback.
   libusb_hotplug_deregister_callback(context_.get(), hotplug_handle_);
+}
+
+bool UsbWrapper::isConnected()
+{
+  std::lock_guard<std::mutex> lock(device_handle_mutex_);
+  return device_handle_ != nullptr;
 }
 
 void UsbWrapper::hotplugMonitorThread() const
@@ -196,7 +203,7 @@ void UsbWrapper::hotplugDetachEvent(libusb_device* dev)
   CANTALOUPE_INFO("Disconnected.");
 }
 
-bool UsbWrapper::receiveBulkData(uint8_t* data, size_t num_bytes, size_t* actual_num_bytes)
+bool UsbWrapper::receiveBulkData(void* data, size_t num_bytes, size_t* actual_num_bytes)
 {
   int signed_actual_length = 0;
 
@@ -209,12 +216,12 @@ bool UsbWrapper::receiveBulkData(uint8_t* data, size_t num_bytes, size_t* actual
       return false;
     }
 
-    int retcode = libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointInIdx | LIBUSB_ENDPOINT_IN, data,
-      static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs);
+    int retcode = libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointInIdx | LIBUSB_ENDPOINT_IN,
+      static_cast<uint8_t*>(data), static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs);
 
     if (retcode != LIBUSB_SUCCESS)
     {
-      CANTALOUPE_ERROR("Failed to initiate transfer (ret = {}).", retcode);
+      CANTALOUPE_ERROR("Failed to initiate transfer (ret = {}: {}).", retcode, libusb_error_name(retcode));
       actual_num_bytes = 0;
       return false;
     }
@@ -224,7 +231,7 @@ bool UsbWrapper::receiveBulkData(uint8_t* data, size_t num_bytes, size_t* actual
   return true;
 }
 
-bool UsbWrapper::transmitBulkData(uint8_t* data, size_t num_bytes)
+bool UsbWrapper::transmitBulkData(void* data, size_t num_bytes)
 {
   int signed_actual_length = 0;
 
@@ -236,8 +243,8 @@ bool UsbWrapper::transmitBulkData(uint8_t* data, size_t num_bytes)
       return false;
     }
 
-    int retcode = libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointOutIdx | LIBUSB_ENDPOINT_OUT, data,
-      static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs);
+    int retcode = libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointOutIdx | LIBUSB_ENDPOINT_OUT,
+      static_cast<uint8_t*>(data), static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs);
 
     if (retcode != LIBUSB_SUCCESS)
     {
@@ -292,7 +299,7 @@ bool UsbWrapper::startChannel(bool enable, bool loopback)
 {
   candleDeviceMode device_mode;
   device_mode.mode = enable == true ? kGSCanModeStart : kGsCanModeReset;
-  device_mode.flags = kGsCanModeFlagHwTimestamp | kGsCanModeFlagPadPacketsToMaxPacketSize;
+  device_mode.flags = kGsCanModeFlagHwTimestamp;
 
   if (loopback == true)
   {
@@ -362,6 +369,51 @@ bool UsbWrapper::setBitrate(uint32_t bitrate)
   }
 
   return transmitControl(ControlType::OUT, GsUsbBreq::BITTIMING, 0, 0, &timing, sizeof(timing));
+}
+
+bool UsbWrapper::writeCanFrame(const CanFrame& frame)
+{
+  candleHostFrame output;
+  output.can_id = frame.id;
+  output.echo_id = 0;
+
+  output.can_dlc = frame.dlc;
+  output.channel = 0;
+  output.flags = 0;
+  output.reserved = 0;
+
+  static_assert(sizeof(output.data) / sizeof(output.data[0]) == CanFrame::kDataNumMaxBytes, "CAN data size mismatch");
+  std::copy_n(&frame.data[0], CanFrame::kDataNumMaxBytes, &output.data[0]);
+
+  output.timestamp_us = 0;
+
+  return transmitBulkData(&output, sizeof(frame));
+}
+
+bool UsbWrapper::readCanFrame(CanFrame* frame)
+{
+  candleHostFrame input;
+  size_t actual_num_bytes = 0;
+
+  if (receiveBulkData(&input, sizeof(input), &actual_num_bytes) == false)
+  {
+    return false;
+  }
+
+  if (actual_num_bytes != sizeof(input))
+  {
+    return false;
+  }
+
+  frame->id = input.can_id;
+  frame->dlc = input.can_dlc;
+
+  static_assert(sizeof(input.data) / sizeof(input.data[0]) == CanFrame::kDataNumMaxBytes, "CAN data size mismatch");
+  std::copy_n(&input.data[0], CanFrame::kDataNumMaxBytes, &frame->data[0]);
+
+  frame->timestamp_us = input.timestamp_us;
+
+  return true;
 }
 
 }  // namespace cantaloupe
