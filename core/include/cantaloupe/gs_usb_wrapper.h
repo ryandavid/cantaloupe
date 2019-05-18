@@ -10,28 +10,16 @@
 //
 // You should have received a copy of the GNU General Public License along with cantaloupe.  If not, see
 // <https://www.gnu.org/licenses/>.
-#ifndef USB_WRAPPER_H_
-#define USB_WRAPPER_H_
+#ifndef GS_USB_WRAPPER_H_
+#define GS_USB_WRAPPER_H_
 
-#include <array>
+#include <cantaloupe/can_frame.h>
+#include <cantaloupe/libusb_forward_declare.h>
+
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <string>
 #include <thread>
-
-// Lets cheat.  We don't want to drag along the libUSB header everywhere, so we forward declare the bits we need.
-extern "C"
-{
-struct libusb_context;
-struct libusb_device;
-struct libusb_device_handle;
-struct libusb_transfer;
-
-void libusb_close(libusb_device_handle*);
-void libusb_exit(libusb_context*);
-int libusb_release_interface(libusb_device_handle*, int);
-}
 
 namespace cantaloupe
 {
@@ -60,29 +48,7 @@ enum class ControlType
   OUT
 };
 
-// Make our own representation of the CAN frame rather relying on the USB interface protocol definition.  It looks
-// essentially the same though.
-struct CanFrame
-{
-  constexpr CanFrame() :
-    id{0},
-    dlc{0},
-    data{},
-    timestamp_us{0}
-  {
-  }
-
-  static constexpr size_t kDataNumMaxBytes = 8;
-
-  uint32_t id;
-  uint8_t dlc;
-
-  std::array<uint8_t, kDataNumMaxBytes> data;
-
-  uint32_t timestamp_us;
-};
-
-class UsbWrapper
+class GsUsbWrapper
 {
  public:
   // USB Vendor and Product IDs we want to attach to.
@@ -91,51 +57,76 @@ class UsbWrapper
 
   // Timeout in seconds to use when processing hotplug events.
   static constexpr uint16_t kHotplugEventTimeoutSecs = 1;
-  static constexpr int kBulkTransferTimeoutMs = 100;
 
   // Index of the USB device configuration we want to attach to.
   static constexpr uint8_t kExpectedConfigurationIndex = 0;
   static constexpr uint8_t kExpectedEndpointInIdx = 1;  // To Host from USB device.
   static constexpr uint8_t kExpectedEndpointOutIdx = 2;  // To USB device from Host.
 
-  static constexpr int kReceiveBufferSizeBytes = 1024;
+  // Default time (ms) to wait for a control transfer to succeed.
+  static constexpr uint32_t kDefaultControlTransferTimeoutMs = 100;
 
-  UsbWrapper();
-  ~UsbWrapper();
+  GsUsbWrapper();
+  ~GsUsbWrapper();
 
+  // Determine if the device is currently connected.
   bool isConnected();
 
+  // Turn on/off the identify LEDs.
   bool setIdentifyLeds(bool enable_identify_leds);
+
+  // Turn on/off the CAN channel.  Optionally enable loopback mode.
   bool startChannel(bool enable, bool loopback = false);
+
+  // Set the bitrate for the channel.
   bool setBitrate(uint32_t bitrate);
 
-  bool writeCanFrame(const CanFrame& frame);
-  bool readCanFrame(CanFrame* frame);
+  // Write a single CAN frame to the bus.  Optionally specify a timeout in ms, or default to zero for blocking.
+  bool writeCanFrame(const CanFrame& frame, uint32_t timeout_ms = 0);
+
+  // Rear a single CAN frame to the bus.  Optionally specify a timeout in ms, or default to zero for blocking.
+  bool readCanFrame(CanFrame* frame, uint32_t timeout_ms = 0);
 
  private:
+  // Determine if the device is already present at startup.
   void checkForDeviceAlreadyConnected();
 
+  // Callbacks used with the hotplug events.
   void hotplugAttachEvent(libusb_device* dev);
   void hotplugDetachEvent(libusb_device* dev);
 
+  // Thread responsible for kicking LibUSB.
   void hotplugMonitorThread() const;
 
-  bool receiveBulkData(void* data, size_t num_bytes, size_t* actual_num_bytes);
-  bool transmitBulkData(void* data, size_t num_bytes);
+  // Receive data from the bulk endpoint.
+  bool receiveBulkData(void* data, size_t num_bytes, size_t* actual_num_bytes, uint32_t timeout_ms);
+
+  // Transmit data on the bulk endpoint.
+  bool transmitBulkData(void* data, size_t num_bytes, uint32_t timeout_ms);
+
+  // Transmit a control message on the interface.
   bool transmitControl(ControlType type, uint8_t request, uint16_t value, uint16_t index, void* data, size_t length);
 
+  // Set the host format on the device.
   bool setHostFormat();
 
+  // The LibUSB context.
   std::unique_ptr<libusb_context, libUsbContextDeleter> context_;
+
+  // Handle to be used with LibUSB hotplug events.
   int hotplug_handle_;
 
+  // Flag indicating that the hotplug envent thread should terminate.
   bool hotplug_thread_shutdown_;
+
+  // The thread responsible for kicking LibUSB.
   std::thread hotplug_thread_;
 
+  // The LibUSB device handle, and a mutex protecting it.
   std::mutex device_handle_mutex_;
   std::unique_ptr<libusb_device_handle, libUsbDeviceHandleDeleter<kExpectedConfigurationIndex>> device_handle_;
 };
 
 }  // namespace cantaloupe
 
-#endif  // USB_WRAPPER_H_
+#endif  // GS_USB_WRAPPER_H_

@@ -11,8 +11,8 @@
 // You should have received a copy of the GNU General Public License along with cantaloupe.  If not, see
 // <https://www.gnu.org/licenses/>.
 
-#include <cantaloupe/canable_cmds.h>
-#include <cantaloupe/usb_wrapper.h>
+#include <cantaloupe/gs_usb_commands.h>
+#include <cantaloupe/gs_usb_wrapper.h>
 #include <cantaloupe/log.h>
 
 #include <algorithm>
@@ -24,7 +24,7 @@
 namespace cantaloupe
 {
 
-UsbWrapper::UsbWrapper() :
+GsUsbWrapper::GsUsbWrapper() :
   context_{nullptr},
   hotplug_handle_{0},
   hotplug_thread_shutdown_{false},
@@ -54,11 +54,11 @@ UsbWrapper::UsbWrapper() :
     // Hand off to the real event handler.
     if (event == LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED)
     {
-      static_cast<UsbWrapper*>(this_ptr)->hotplugAttachEvent(dev);
+      static_cast<GsUsbWrapper*>(this_ptr)->hotplugAttachEvent(dev);
     }
     else
     {
-      static_cast<UsbWrapper*>(this_ptr)->hotplugDetachEvent(dev);
+      static_cast<GsUsbWrapper*>(this_ptr)->hotplugDetachEvent(dev);
     }
 
     return 0;
@@ -79,13 +79,13 @@ UsbWrapper::UsbWrapper() :
   );
 
   // Create a thread that monitors for hotplug events.
-  hotplug_thread_ = std::thread(std::bind(&UsbWrapper::hotplugMonitorThread, this));
+  hotplug_thread_ = std::thread(std::bind(&GsUsbWrapper::hotplugMonitorThread, this));
 
   // Check to see if the device is already connected.
   checkForDeviceAlreadyConnected();
 }
 
-UsbWrapper::~UsbWrapper()
+GsUsbWrapper::~GsUsbWrapper()
 {
   // If the hotplug monitor thread is still running, signal it to die and then wait for it.
   if (hotplug_thread_.joinable() == true)
@@ -98,13 +98,13 @@ UsbWrapper::~UsbWrapper()
   libusb_hotplug_deregister_callback(context_.get(), hotplug_handle_);
 }
 
-bool UsbWrapper::isConnected()
+bool GsUsbWrapper::isConnected()
 {
   std::lock_guard<std::mutex> lock(device_handle_mutex_);
   return device_handle_ != nullptr;
 }
 
-void UsbWrapper::hotplugMonitorThread() const
+void GsUsbWrapper::hotplugMonitorThread() const
 {
   while (hotplug_thread_shutdown_ == false)
   {
@@ -117,7 +117,7 @@ void UsbWrapper::hotplugMonitorThread() const
   }
 }
 
-void UsbWrapper::checkForDeviceAlreadyConnected()
+void GsUsbWrapper::checkForDeviceAlreadyConnected()
 {
   libusb_device **list;
   ssize_t cnt = libusb_get_device_list(context_.get(), &list);
@@ -143,7 +143,7 @@ void UsbWrapper::checkForDeviceAlreadyConnected()
   libusb_free_device_list(list, 1);
 }
 
-void UsbWrapper::hotplugAttachEvent(libusb_device* dev)
+void GsUsbWrapper::hotplugAttachEvent(libusb_device* dev)
 {
   if (dev == nullptr)
   {
@@ -188,7 +188,7 @@ void UsbWrapper::hotplugAttachEvent(libusb_device* dev)
   CANTALOUPE_INFO("Connected!");
 }
 
-void UsbWrapper::hotplugDetachEvent(libusb_device* dev)
+void GsUsbWrapper::hotplugDetachEvent(libusb_device* dev)
 {
   if (dev == nullptr)
   {
@@ -203,7 +203,7 @@ void UsbWrapper::hotplugDetachEvent(libusb_device* dev)
   CANTALOUPE_INFO("Disconnected.");
 }
 
-bool UsbWrapper::receiveBulkData(void* data, size_t num_bytes, size_t* actual_num_bytes)
+bool GsUsbWrapper::receiveBulkData(void* data, size_t num_bytes, size_t* actual_num_bytes, uint32_t timeout_ms)
 {
   int signed_actual_length = 0;
 
@@ -217,7 +217,7 @@ bool UsbWrapper::receiveBulkData(void* data, size_t num_bytes, size_t* actual_nu
     }
 
     int retcode = libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointInIdx | LIBUSB_ENDPOINT_IN,
-      static_cast<uint8_t*>(data), static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs);
+      static_cast<uint8_t*>(data), static_cast<int>(num_bytes), &signed_actual_length, timeout_ms);
 
     if (retcode != LIBUSB_SUCCESS)
     {
@@ -231,7 +231,7 @@ bool UsbWrapper::receiveBulkData(void* data, size_t num_bytes, size_t* actual_nu
   return true;
 }
 
-bool UsbWrapper::transmitBulkData(void* data, size_t num_bytes)
+bool GsUsbWrapper::transmitBulkData(void* data, size_t num_bytes, uint32_t timeout_ms)
 {
   int signed_actual_length = 0;
 
@@ -244,7 +244,7 @@ bool UsbWrapper::transmitBulkData(void* data, size_t num_bytes)
     }
 
     int retcode = libusb_bulk_transfer(device_handle_.get(), kExpectedEndpointOutIdx | LIBUSB_ENDPOINT_OUT,
-      static_cast<uint8_t*>(data), static_cast<int>(num_bytes), &signed_actual_length, kBulkTransferTimeoutMs);
+      static_cast<uint8_t*>(data), static_cast<int>(num_bytes), &signed_actual_length, timeout_ms);
 
     if (retcode != LIBUSB_SUCCESS)
     {
@@ -256,7 +256,7 @@ bool UsbWrapper::transmitBulkData(void* data, size_t num_bytes)
   return static_cast<size_t>(signed_actual_length) == num_bytes;
 }
 
-bool UsbWrapper::transmitControl(ControlType type, uint8_t request, uint16_t value, uint16_t index, void* data,
+bool GsUsbWrapper::transmitControl(ControlType type, uint8_t request, uint16_t value, uint16_t index, void* data,
   size_t length)
 {
   uint8_t request_type = LIBUSB_RECIPIENT_INTERFACE | LIBUSB_REQUEST_TYPE_VENDOR;
@@ -271,7 +271,7 @@ bool UsbWrapper::transmitControl(ControlType type, uint8_t request, uint16_t val
     }
 
     int num_bytes_tx = libusb_control_transfer(device_handle_.get(), request_type, request, value, index,
-      static_cast<uint8_t*>(data), static_cast<uint16_t>(length), kBulkTransferTimeoutMs);
+      static_cast<uint8_t*>(data), static_cast<uint16_t>(length), kDefaultControlTransferTimeoutMs);
 
     if (num_bytes_tx <= 0)
     {
@@ -283,36 +283,38 @@ bool UsbWrapper::transmitControl(ControlType type, uint8_t request, uint16_t val
   return true;
 }
 
-bool UsbWrapper::setIdentifyLeds(bool enable_identify_leds)
+bool GsUsbWrapper::setIdentifyLeds(bool enable_identify_leds)
 {
   uint32_t enable_typed = enable_identify_leds;
   return transmitControl(ControlType::OUT, GsUsbBreq::IDENTIFY, 0, 0, &enable_typed, sizeof(enable_typed));
 }
 
-bool UsbWrapper::setHostFormat()
+bool GsUsbWrapper::setHostFormat()
 {
-  uint32_t mutable_magic = kGsCanExpectedHostMagic;
-  return transmitControl(ControlType::OUT, GsUsbBreq::HOST_FORMAT, 0, 0, &mutable_magic, sizeof(mutable_magic));
+  // We are expected to send a magic packet to the device so it can determine our endianess.  Default constructor
+  // for GsHostConfig does all the work for us.
+  GsHostConfig config;
+  return transmitControl(ControlType::OUT, GsUsbBreq::HOST_FORMAT, 0, 0, &config, sizeof(config));
 }
 
-bool UsbWrapper::startChannel(bool enable, bool loopback)
+bool GsUsbWrapper::startChannel(bool enable, bool loopback)
 {
-  candleDeviceMode device_mode;
-  device_mode.mode = enable == true ? kGSCanModeStart : kGsCanModeReset;
-  device_mode.flags = kGsCanModeFlagHwTimestamp;
+  GsDeviceMode device_mode;
+  device_mode.mode = enable == true ? GsDeviceMode::kModeStart : GsDeviceMode::kModeReset;
+  device_mode.flags = GsDeviceMode::kFlagHwTimestamp;
 
   if (loopback == true)
   {
-    device_mode.flags |= kGsCanModeFlagLoopBack;
+    device_mode.flags |= GsDeviceMode::kFlagLoopBack;
   }
 
   return transmitControl(ControlType::OUT, GsUsbBreq::MODE, 0, 0, &device_mode, sizeof(device_mode));
 }
 
-bool UsbWrapper::setBitrate(uint32_t bitrate)
+bool GsUsbWrapper::setBitrate(uint32_t bitrate)
 {
   // Values borrowed from candleLight_winusbtest ( https://github.com/HubertD/candleLight_winusbtest ).
-  candleDeviceBitTiming timing;
+  GsDeviceBitTiming timing;
   timing.prop_seg = 1;
 
   timing.prop_seg = 1;
@@ -371,9 +373,9 @@ bool UsbWrapper::setBitrate(uint32_t bitrate)
   return transmitControl(ControlType::OUT, GsUsbBreq::BITTIMING, 0, 0, &timing, sizeof(timing));
 }
 
-bool UsbWrapper::writeCanFrame(const CanFrame& frame)
+bool GsUsbWrapper::writeCanFrame(const CanFrame& frame, uint32_t timeout_ms )
 {
-  candleHostFrame output;
+  GsHostCanFrame output;
   output.can_id = frame.id;
   output.echo_id = 0;
 
@@ -387,15 +389,15 @@ bool UsbWrapper::writeCanFrame(const CanFrame& frame)
 
   output.timestamp_us = 0;
 
-  return transmitBulkData(&output, sizeof(frame));
+  return transmitBulkData(&output, sizeof(frame), timeout_ms);
 }
 
-bool UsbWrapper::readCanFrame(CanFrame* frame)
+bool GsUsbWrapper::readCanFrame(CanFrame* frame, uint32_t timeout_ms)
 {
-  candleHostFrame input;
+  GsHostCanFrame input;
   size_t actual_num_bytes = 0;
 
-  if (receiveBulkData(&input, sizeof(input), &actual_num_bytes) == false)
+  if (receiveBulkData(&input, sizeof(input), &actual_num_bytes, timeout_ms) == false)
   {
     return false;
   }

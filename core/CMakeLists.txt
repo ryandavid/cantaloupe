@@ -11,8 +11,8 @@ link_directories(${LIBUSB_LIBRARY_DIRS})
 
 add_executable(cantaloupe
     src/cantaloupe.cpp
+    src/gs_usb_wrapper.cpp
     src/log.cpp
-    src/usb_wrapper.cpp
 )
 
 target_link_libraries(cantaloupe
