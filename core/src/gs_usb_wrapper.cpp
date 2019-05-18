@@ -379,13 +379,17 @@ bool GsUsbWrapper::writeCanFrame(const CanFrame& frame, uint32_t timeout_ms )
   output.can_id = frame.id;
   output.echo_id = 0;
 
-  output.can_dlc = frame.dlc;
+  // Make sure that the DLC never exceeds our max data size.
+  using dlc_type = decltype(output.can_dlc);
+  output.can_dlc = std::min(static_cast<dlc_type>(frame.dlc), static_cast<dlc_type>(CanFrame::kDataNumMaxBytes));
+
   output.channel = 0;
   output.flags = 0;
   output.reserved = 0;
 
+  // Check at compile time that our CAN frame data lengths match, and then copy all in one fell swoop.
   static_assert(sizeof(output.data) / sizeof(output.data[0]) == CanFrame::kDataNumMaxBytes, "CAN data size mismatch");
-  std::copy_n(&frame.data[0], CanFrame::kDataNumMaxBytes, &output.data[0]);
+  std::copy_n(&frame.data[0], output.can_dlc, &output.data[0]);
 
   output.timestamp_us = 0;
 
@@ -408,10 +412,14 @@ bool GsUsbWrapper::readCanFrame(CanFrame* frame, uint32_t timeout_ms)
   }
 
   frame->id = input.can_id;
-  frame->dlc = input.can_dlc;
 
+  // Make sure that the DLC never exceeds our max data size.
+  using dlc_type = decltype(frame->dlc);
+  frame->dlc = std::min(static_cast<dlc_type>(input.can_dlc), static_cast<dlc_type>(CanFrame::kDataNumMaxBytes));
+
+  // Check at compile time that our CAN frame data lengths match, and then copy all in one fell swoop.
   static_assert(sizeof(input.data) / sizeof(input.data[0]) == CanFrame::kDataNumMaxBytes, "CAN data size mismatch");
-  std::copy_n(&input.data[0], CanFrame::kDataNumMaxBytes, &frame->data[0]);
+  std::copy_n(&input.data[0], frame->dlc, &frame->data[0]);
 
   frame->timestamp_us = input.timestamp_us;
 
