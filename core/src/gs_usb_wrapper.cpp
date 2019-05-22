@@ -412,6 +412,12 @@ bool GsUsbWrapper::readCanFrame(CanFrame* frame, uint32_t timeout_ms)
   }
 
   frame->id = input.can_id;
+  frame->error_frame = input.can_id & GsHostCanFrame::kCanIdErrorFlag;
+  frame->rtr_frame = input.can_id & GsHostCanFrame::kCanIdRtrFlag;
+  frame->eff_frame = input.can_id & GsHostCanFrame::kCanIdEffFlag;
+
+  // We expect that the echo ID be set to uint32_t(-1) when its not loopback.
+  frame->from_tx = input.echo_id != GsHostCanFrame::kEchoIdNormalRxFrame;
 
   // Make sure that the DLC never exceeds our max data size.
   using dlc_type = decltype(frame->dlc);

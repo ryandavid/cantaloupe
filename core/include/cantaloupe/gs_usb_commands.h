@@ -62,6 +62,14 @@ static_assert(sizeof(GsDeviceMode) == 8, "GsDeviceMode is not properly represent
 // Frame representation we expect from the device.
 struct __attribute__((packed)) GsHostCanFrame
 {
+  // Value we expect in `echo_id` if it not a loopback frame.
+  static constexpr uint32_t kEchoIdNormalRxFrame = 0xFFFFFFFF;
+
+  // Flags to look for in the CAN ID to indicate error, etc.
+  static constexpr uint32_t kCanIdErrorFlag = 0x20000000;
+  static constexpr uint32_t kCanIdRtrFlag = 0x40000000;
+  static constexpr uint32_t kCanIdEffFlag = 0x80000000;
+
   constexpr GsHostCanFrame() :
     echo_id{0},
     can_id{0},

@@ -25,6 +25,10 @@ struct CanFrame
   constexpr CanFrame() :
     id{0},
     dlc{0},
+    error_frame{false},
+    rtr_frame{false},
+    eff_frame{false},
+    from_tx{false},
     data{},
     timestamp_us{0}
   {
@@ -38,6 +42,18 @@ struct CanFrame
 
   // Data length.
   uint8_t dlc;
+
+  // Indicates if the CAN frame is an error frame.
+  bool error_frame;
+
+  // Indicates if the CAN frame is a remote transmission request (RTR) frame.
+  bool rtr_frame;
+
+  // Indicates if the CAN frame utilizes extended frame format (EFF).
+  bool eff_frame;
+
+  // Indicates if the CAN frame originated from our own transmission.
+  bool from_tx;
 
   // Data in message.
   std::array<uint8_t, kDataNumMaxBytes> data;

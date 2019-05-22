@@ -13,8 +13,12 @@
 #include <cantaloupe/log.h>
 #include <cantaloupe/gs_usb_wrapper.h>
 
-int main()
+int main(int argc, char** /*argv*/)
 {
+  // Hacky hack hack.  Enable loopback mode if there is ANY command line arg specified.
+  bool enable_loopback = argc > 1;
+  CANTALOUPE_INFO("Looback {}.", enable_loopback == true ? "ENABLED" : "DISABLED");
+
   cantaloupe::GsUsbWrapper usb_can;
   if (usb_can.isConnected() == false)
   {
@@ -28,7 +32,7 @@ int main()
     return -1;
   }
 
-  if (usb_can.startChannel(true, true) == false)
+  if (usb_can.startChannel(true, enable_loopback) == false)
   {
     CANTALOUPE_ERROR("Failed to start the CAN channel.");
     return -1;
@@ -50,17 +54,21 @@ int main()
     return -1;
   }
 
-  cantaloupe::CanFrame rx_frame;
-  if (usb_can.readCanFrame(&rx_frame) == false)
+  while (true)
   {
-    CANTALOUPE_ERROR("Failed to read from the CAN channel.");
-    return -1;
-  }
+    cantaloupe::CanFrame rx_frame;
+    if (usb_can.readCanFrame(&rx_frame) == false)
+    {
+      CANTALOUPE_ERROR("Failed to read from the CAN channel.");
+      return -1;
+    }
 
-  // Print the received CAN frame out.
-  CANTALOUPE_INFO("Received frame ID 0x{:02X}, dlc = {}, data = [{}, {}, {}, {}, {}, {}, {}, {}], ts = {} us.",
-    rx_frame.id, rx_frame.dlc, rx_frame.data[0], rx_frame.data[1], rx_frame.data[2], rx_frame.data[3], rx_frame.data[4],
-    rx_frame.data[5], rx_frame.data[6], rx_frame.data[7], rx_frame.timestamp_us);
+    // Print the received CAN frame out.
+    CANTALOUPE_INFO("Received frame ID 0x{:02X}, error_frame = {}, from_tx = {} dlc = {}, "
+      "data = [{}, {}, {}, {}, {}, {}, {}, {}], ts = {} us.", rx_frame.id, rx_frame.error_frame, rx_frame.from_tx,
+      rx_frame.dlc, rx_frame.data[0], rx_frame.data[1], rx_frame.data[2], rx_frame.data[3], rx_frame.data[4],
+      rx_frame.data[5], rx_frame.data[6], rx_frame.data[7], rx_frame.timestamp_us);
+  }
 
   if (usb_can.startChannel(false) == false)
   {
