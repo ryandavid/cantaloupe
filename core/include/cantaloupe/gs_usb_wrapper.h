@@ -69,6 +69,9 @@ class GsUsbWrapper
   GsUsbWrapper();
   ~GsUsbWrapper();
 
+  // Get the version of LibUSB as a string.
+  static const char* getLibUSBVersionString();
+
   // Determine if the device is currently connected.
   bool isConnected();
 

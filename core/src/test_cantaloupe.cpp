@@ -15,6 +15,9 @@
 
 int main(int argc, char** /*argv*/)
 {
+  // Print out the LibUSB version we linked against.
+  CANTALOUPE_INFO("LibUSB version {}", cantaloupe::GsUsbWrapper::getLibUSBVersionString());
+
   // Hacky hack hack.  Enable loopback mode if there is ANY command line arg specified.
   bool enable_loopback = argc > 1;
   CANTALOUPE_INFO("Looback {}.", enable_loopback == true ? "ENABLED" : "DISABLED");

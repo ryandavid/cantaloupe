@@ -10,7 +10,6 @@
 //
 // You should have received a copy of the GNU General Public License along with cantaloupe.  If not, see
 // <https://www.gnu.org/licenses/>.
-
 #include <cantaloupe/gs_usb_commands.h>
 #include <cantaloupe/gs_usb_wrapper.h>
 #include <cantaloupe/log.h>
@@ -20,6 +19,12 @@
 #include <stdexcept>
 
 #include <libusb.h>
+
+// We expect the symbol LIBUSB_VERSION_STRING to be set by CMake with the version number.  This is a lazy way of letting
+// us get the version number without having to call into LibUSB's API and assemble the string ourselves.
+#ifndef LIBUSB_VERSION_STRING
+#warning LIBUSB_VERSION_STRING is not set.
+#endif
 
 namespace cantaloupe
 {
@@ -96,6 +101,11 @@ GsUsbWrapper::~GsUsbWrapper()
 
   // Deregister the hotplug callback.
   libusb_hotplug_deregister_callback(context_.get(), hotplug_handle_);
+}
+
+const char* GsUsbWrapper::getLibUSBVersionString()
+{
+  return LIBUSB_VERSION_STRING;
 }
 
 bool GsUsbWrapper::isConnected()
