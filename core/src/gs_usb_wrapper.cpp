@@ -303,7 +303,7 @@ bool GsUsbWrapper::startChannel(bool enable, bool loopback)
   device_mode.mode = enable == true ? GsDeviceMode::kModeStart : GsDeviceMode::kModeReset;
   device_mode.flags = GsDeviceMode::kFlagHwTimestamp;
 
-  if (loopback == true)
+  if ((enable == true) && (loopback == true))
   {
     device_mode.flags |= GsDeviceMode::kFlagLoopBack;
   }
