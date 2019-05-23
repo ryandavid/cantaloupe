@@ -13,8 +13,24 @@
 #include <cantaloupe/log.h>
 #include <cantaloupe/gs_usb_wrapper.h>
 
+#include <csignal>
+
+// Hacky way stop our loop with a sigint.
+bool g_should_continue = true;
+void sigint_handler(int /*signal*/)
+{
+  g_should_continue = false;
+
+  // Reset the signal handler just in case we are off in the weeds somewhere.
+  signal(SIGINT, SIG_DFL);
+}
+
+
 int main(int argc, char** /*argv*/)
 {
+  // Attach to SIGINT in order to close.
+  signal(SIGINT, sigint_handler);
+
   // Print out the LibUSB version we linked against.
   CANTALOUPE_INFO("LibUSB version {}", cantaloupe::GsUsbWrapper::getLibUSBVersionString());
 
@@ -35,7 +51,7 @@ int main(int argc, char** /*argv*/)
     return -1;
   }
 
-  if (usb_can.startChannel(true, enable_loopback) == false)
+  if (usb_can.startChannel(enable_loopback) == false)
   {
     CANTALOUPE_ERROR("Failed to start the CAN channel.");
     return -1;
@@ -57,13 +73,12 @@ int main(int argc, char** /*argv*/)
     return -1;
   }
 
-  while (true)
+  while (g_should_continue == true)
   {
     cantaloupe::CanFrame rx_frame;
-    if (usb_can.readCanFrame(&rx_frame) == false)
+    if (usb_can.readCanFrame(&rx_frame, 100) == false)
     {
-      CANTALOUPE_ERROR("Failed to read from the CAN channel.");
-      return -1;
+      continue;
     }
 
     // Print the received CAN frame out.
@@ -73,7 +88,7 @@ int main(int argc, char** /*argv*/)
       rx_frame.data[5], rx_frame.data[6], rx_frame.data[7], rx_frame.timestamp_us);
   }
 
-  if (usb_can.startChannel(false) == false)
+  if (usb_can.stopChannel() == false)
   {
     CANTALOUPE_ERROR("Failed to stop the CAN channel.");
     return -1;

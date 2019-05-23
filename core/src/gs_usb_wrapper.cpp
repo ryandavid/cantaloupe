@@ -92,6 +92,9 @@ GsUsbWrapper::GsUsbWrapper() :
 
 GsUsbWrapper::~GsUsbWrapper()
 {
+  // If we have an open channel, close it.
+  stopChannel();
+
   // If the hotplug monitor thread is still running, signal it to die and then wait for it.
   if (hotplug_thread_.joinable() == true)
   {
@@ -120,8 +123,8 @@ void GsUsbWrapper::hotplugMonitorThread() const
   {
     // Use a timeout so that way there is a opportunity for this thread to be signaled to be closed.
     timeval duration;
-    duration.tv_sec = kHotplugEventTimeoutSecs;
-    duration.tv_usec = 0;
+    duration.tv_sec = 0;
+    duration.tv_usec = kHotplugEventTimeoutUSecs;
 
     libusb_handle_events_timeout(context_.get(), &duration);
   }
@@ -231,7 +234,12 @@ bool GsUsbWrapper::receiveBulkData(void* data, size_t num_bytes, size_t* actual_
 
     if (retcode != LIBUSB_SUCCESS)
     {
-      CANTALOUPE_ERROR("Failed to initiate transfer (ret = {}: {}).", retcode, libusb_error_name(retcode));
+      // Only complain if the error was not a timeout.
+      if (retcode != LIBUSB_ERROR_TIMEOUT)
+      {
+        CANTALOUPE_ERROR("Failed to initiate transfer (ret = {}: {}).", retcode, libusb_error_name(retcode));
+      }
+
       actual_num_bytes = 0;
       return false;
     }
@@ -307,16 +315,25 @@ bool GsUsbWrapper::setHostFormat()
   return transmitControl(ControlType::OUT, GsUsbBreq::HOST_FORMAT, 0, 0, &config, sizeof(config));
 }
 
-bool GsUsbWrapper::startChannel(bool enable, bool loopback)
+bool GsUsbWrapper::startChannel(bool loopback)
 {
   GsDeviceMode device_mode;
-  device_mode.mode = enable == true ? GsDeviceMode::kModeStart : GsDeviceMode::kModeReset;
+  device_mode.mode = GsDeviceMode::kModeStart;
   device_mode.flags = GsDeviceMode::kFlagHwTimestamp;
 
-  if ((enable == true) && (loopback == true))
+  if (loopback == true)
   {
     device_mode.flags |= GsDeviceMode::kFlagLoopBack;
   }
+
+  return transmitControl(ControlType::OUT, GsUsbBreq::MODE, 0, 0, &device_mode, sizeof(device_mode));
+}
+
+bool GsUsbWrapper::stopChannel()
+{
+  GsDeviceMode device_mode;
+  device_mode.mode = GsDeviceMode::kModeReset;
+  device_mode.flags = 0;
 
   return transmitControl(ControlType::OUT, GsUsbBreq::MODE, 0, 0, &device_mode, sizeof(device_mode));
 }

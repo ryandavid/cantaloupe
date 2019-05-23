@@ -55,8 +55,8 @@ class GsUsbWrapper
   static constexpr uint16_t kUsbVendorId = 0x1d50;
   static constexpr uint16_t kUsbProductId = 0x606f;
 
-  // Timeout in seconds to use when processing hotplug events.
-  static constexpr uint16_t kHotplugEventTimeoutSecs = 1;
+  // Timeout in microseconds to use when processing hotplug events.
+  static constexpr uint32_t kHotplugEventTimeoutUSecs = 100 * 1000;
 
   // Index of the USB device configuration we want to attach to.
   static constexpr uint8_t kExpectedConfigurationIndex = 0;
@@ -78,8 +78,11 @@ class GsUsbWrapper
   // Turn on/off the identify LEDs.
   bool setIdentifyLeds(bool enable_identify_leds);
 
-  // Turn on/off the CAN channel.  Optionally enable loopback mode.
-  bool startChannel(bool enable, bool loopback = false);
+  // Enable the CAN channel.  Optionally enable loopback mode.
+  bool startChannel(bool loopback = false);
+
+  // Disable the CAN channel.
+  bool stopChannel();
 
   // Set the bitrate for the channel.
   bool setBitrate(uint32_t bitrate);
